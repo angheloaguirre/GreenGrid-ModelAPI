@@ -1,0 +1,56 @@
+name: CI Pipeline for GreenGrid Model API
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Paso 1: Check out el código del repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      # Paso 2: Configurar Python
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'  # O la versión que uses en tu proyecto
+
+      # Paso 3: Instalar las dependencias desde requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+
+      # Paso 4: Ejecutar pruebas (si tienes pruebas unitarias)
+      - name: Run tests
+        run: |
+          source venv/bin/activate
+          pytest  # Si usas pytest para pruebas, de lo contrario ajusta el comando
+
+      # Paso 5: Exportar pesos (si es necesario en tu flujo de trabajo)
+      - name: Export weights
+        run: |
+          python export_weights.py
+
+      # Paso 6: Desplegar aplicación (puedes modificar según tu plataforma)
+      - name: Deploy to production
+        run: |
+          # Ejemplo de despliegue con Heroku
+          # heroku login -i
+          # git remote add heroku https://git.heroku.com/your-app.git
+          # git push heroku main
+
+      # Paso 7: Subir los modelos a AWS o donde corresponda
+      - name: Upload model to AWS
+        run: |
+          aws s3 cp modelo_rlm.pkl s3://your-bucket-name/
+          aws s3 cp weights.json s3://your-bucket-name/
