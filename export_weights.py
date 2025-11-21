@@ -1,124 +1,268 @@
-# export_weights.py — genera weights.json (unscaled) y weights_scaled.json
-import json
-import os
-import joblib
-import numpy as np
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler
-
-MODEL_PATH = os.getenv("MODEL_PATH", "modelo_rlm.pkl")
-SCHEMA_PATH = os.getenv("SCHEMA_PATH", "modelo_rlm_schema.json")
-
-def load_schema_cols(path: str):
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    cols = data.get("expected_feature_columns") or data.get("features")
-    if not cols:
-        raise ValueError("El schema no tiene 'expected_feature_columns'.")
-    return list(cols)
-
-def find_final_estimator(model):
-    # Si es Pipeline, el último paso suele ser el estimador
-    if isinstance(model, Pipeline):
-        return list(model.named_steps.values())[-1]
-    return model
-
-def find_scaler_params(model, expected_cols):
-    """Devuelve (mean_, scale_) si encuentra un StandardScaler que se aplique a
-       las mismas columnas en el mismo orden que expected_cols. Si no, (None, None)."""
-    scaler = None
-    # Caso 1: Pipeline sencillo con StandardScaler como paso
-    if isinstance(model, Pipeline):
-        for name, step in model.named_steps.items():
-            if isinstance(step, StandardScaler):
-                scaler = step
-                break
-        # Caso 2: ColumnTransformer -> buscar StandardScaler dentro (por ejemplo, en el 'numeric' pipeline)
-        if scaler is None:
-            for name, step in model.named_steps.items():
-                if isinstance(step, ColumnTransformer):
-                    ct: ColumnTransformer = step
-                    for _, trans, cols in ct.transformers_:
-                        # trans puede ser Pipeline o StandardScaler directo
-                        if isinstance(trans, Pipeline):
-                            for _, inner in trans.steps:
-                                if isinstance(inner, StandardScaler):
-                                    scaler = inner
-                                    break
-                        elif isinstance(trans, StandardScaler):
-                            scaler = trans
-                        if scaler is not None:
-                            break
-                if scaler is not None:
-                    break
-
-    if scaler is None:
-        return None, None
-
-    # Validación básica de shape
-    mean_ = getattr(scaler, "mean_", None)
-    scale_ = getattr(scaler, "scale_", None)
-    if mean_ is None or scale_ is None:
-        return None, None
-
-    # Si el StandardScaler se entrenó con exactamente esas columnas,
-    # length debe coincidir.
-    if len(mean_) != len(expected_cols) or len(scale_) != len(expected_cols):
-        # No intentamos revertir si no coincide el mapeo 1:1
-        return None, None
-
-    return mean_, scale_
-
-def export_weights():
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"No se encontró el modelo en {MODEL_PATH}")
-    if not os.path.exists(SCHEMA_PATH):
-        raise FileNotFoundError(f"No se encontró el schema en {SCHEMA_PATH}")
-
-    model = joblib.load(MODEL_PATH)
-    features = load_schema_cols(SCHEMA_PATH)
-    est = find_final_estimator(model)
-
-    if not hasattr(est, "coef_") or not hasattr(est, "intercept_"):
-        raise ValueError("El estimador final no expone coef_ / intercept_ (¿no es LinearRegression?).")
-
-    coef = np.ravel(est.coef_).astype(float)
-    intercept = float(est.intercept_)
-
-    # Guardamos SIEMPRE los "scaled" (tal como salen del estimador)
-    scaled_payload = {
-        "features": features,
-        "coef": coef.tolist(),
-        "intercept": intercept
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GreenGrid • Predicción de Consumo Energético</title>
+  <style>
+    :root { 
+      --bg: #1d2d2a; 
+      --card: #2a4236; 
+      --text: #f2f2f7; 
+      --muted: #a0a3ad; 
+      --brand: #4caf50; /* Verde para energía renovable */
+      --accent: #81c784; /* Verde más suave */
     }
-    with open("weights_scaled.json", "w", encoding="utf-8") as f:
-        json.dump(scaled_payload, f, ensure_ascii=False, indent=2)
+    
+    * { 
+      box-sizing: border-box; 
+      font-family: 'Poppins', sans-serif; /* Fuente más moderna */
+    }
+    
+    body { 
+      margin: 0; 
+      background: linear-gradient(180deg, #2c3e50, #1d2d2a); 
+      color: var(--text); 
+      font-size: 16px;
+    }
+    
+    .wrap { 
+      max-width: 960px; 
+      margin: 32px auto; 
+      padding: 0 16px; 
+    }
+    
+    header { 
+      display: flex; 
+      align-items: center; 
+      gap: 10px; 
+      margin-bottom: 20px; 
+    }
+    
+    .logo { 
+      width: 32px; 
+      height: 32px; 
+      background: var(--brand); 
+      border-radius: 8px; 
+      display: grid; 
+      place-items: center; 
+      color: #fff; 
+      font-weight: 900; 
+    }
+    
+    h1 { 
+      font-size: 24px; 
+      margin: 0; 
+      letter-spacing: .3px; 
+      font-weight: 600;
+    }
+    
+    .card { 
+      background: var(--card); 
+      border: 1px solid #232435; 
+      border-radius: 16px; 
+      padding: 16px; 
+    }
+    
+    .grid { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
+      gap: 14px; 
+    }
+    
+    label { 
+      font-size: 13px; 
+      color: var(--muted); 
+      margin-bottom: 5px; 
+      display: block; 
+    }
+    
+    input { 
+      width: 100%; 
+      padding: 10px; 
+      border-radius: 8px; 
+      border: 1px solid #2a2b3f; 
+      background: #10121a; 
+      color: var(--text); 
+      font-size: 14px;
+    }
+    
+    input:focus { 
+      border-color: var(--brand); 
+      outline: none; 
+    }
+    
+    .row { 
+      display: flex; 
+      gap: 12px; 
+      flex-wrap: wrap; 
+      margin-top: 10px; 
+      align-items: center; 
+    }
+    
+    button { 
+      padding: 12px 16px; 
+      border: none; 
+      border-radius: 12px; 
+      background: var(--brand); 
+      color: #fff; 
+      font-weight: 600; 
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    
+    button:hover {
+      background: var(--accent);
+    }
+    
+    .muted { 
+      color: var(--muted); 
+      font-size: 12px; 
+    }
+    
+    .result { 
+      margin-top: 18px; 
+      border: 1px solid #2a2b3f; 
+      border-radius: 12px; 
+      padding: 14px; 
+      display: none; 
+    }
+    
+    .ok { 
+      border-color: #284a36; 
+      background: #0f1a14; 
+    }
+    
+    .err { 
+      border-color: #4a2835; 
+      background: #1a0f12; 
+    }
+    
+    .spin { 
+      width: 16px; 
+      height: 16px; 
+      border: 2px solid #fff3; 
+      border-top-color: #fff; 
+      border-radius: 50%; 
+      display: inline-block; 
+      animation: rot .9s linear infinite; 
+      vertical-align: -3px; 
+      margin-right: 6px; 
+    }
+    
+    @keyframes rot { 
+      to { transform: rotate(360deg); } 
+    }
+    
+    .footer { 
+      margin-top: 20px; 
+      color: var(--muted); 
+      font-size: 12px; 
+      text-align: center; 
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">⚡</div>
+      <h1>GreenGrid · Predicción de Consumo Energético</h1>
+    </header>
 
-    # Intentar revertir StandardScaler si existe y es compatible
-    mean_, scale_ = find_scaler_params(model, features)
-    if mean_ is not None and scale_ is not None:
-        scale_ = np.array(scale_, dtype=float)
-        mean_ = np.array(mean_, dtype=float)
+    <div class="card">
+      <p class="muted">Completa los valores de sensores (IoT) y presiona <b>Calcular</b>. La API debe estar activa.</p>
 
-        # Si y = w · ((x - mean)/scale) + b   =>   y = (w/scale) · x + (b - sum(w*mean/scale))
-        unscaled_coef = coef / scale_
-        unscaled_intercept = float(intercept - np.sum(coef * (mean_ / scale_)))
+      <form id="frm">
+        <div class="grid">
+          <div><label>Fecha y hora</label><input type="datetime-local" name="Date" required></div>
+          <div><label>z1_S1(degC)</label><input type="number" step="0.01" name="z1_S1(degC)" required></div>
+          <div><label>z1_S1(RH%)</label><input type="number" step="0.01" name="z1_S1(RH%)" required></div>
+          <div><label>z1_S1(lux)</label><input type="number" step="0.01" name="z1_S1(lux)" required></div>
 
-        payload = {
-            "features": features,
-            "coef": unscaled_coef.tolist(),
-            "intercept": unscaled_intercept
+          <div><label>z2_S1(degC)</label><input type="number" step="0.01" name="z2_S1(degC)" required></div>
+          <div><label>z2_S1(RH%)</label><input type="number" step="0.01" name="z2_S1(RH%)" required></div>
+          <div><label>z2_S1(lux)</label><input type="number" step="0.01" name="z2_S1(lux)" required></div>
+
+          <div><label>z4_S1(degC)</label><input type="number" step="0.01" name="z4_S1(degC)" required></div>
+          <div><label>z4_S1(RH%)</label><input type="number" step="0.01" name="z4_S1(RH%)" required></div>
+          <div><label>z4_S1(lux)</label><input type="number" step="0.01" name="z4_S1(lux)" required></div>
+
+          <div><label>z5_S1(degC)</label><input type="number" step="0.01" name="z5_S1(degC)" required></div>
+          <div><label>z5_S1(RH%)</label><input type="number" step="0.01" name="z5_S1(RH%)" required></div>
+          <div><label>z5_S1(lux)</label><input type="number" step="0.01" name="z5_S1(lux)" required></div>
+        </div>
+
+        <div class="row">
+          <button id="btn" type="submit">Calcular</button>
+          <button type="button" id="demo">Ejemplo</button>
+          <span class="muted" id="status"></span>
+        </div>
+      </form>
+
+      <div id="out" class="result"></div>
+    </div>
+
+    <div class="footer">© GreenGrid — MVP</div>
+  </div>
+
+  <script>
+    const API_BASE = (location.hostname === '127.0.0.1' || location.hostname === 'localhost')
+      ? 'http://127.0.0.1:8000'
+      : window.location.origin;
+
+    const form = document.getElementById('frm');
+    const out = document.getElementById('out');
+    const btn = document.getElementById('btn');
+    const demoBtn = document.getElementById('demo');
+    const statusEl = document.getElementById('status');
+
+    demoBtn.addEventListener('click', () => {
+      const demo = {
+        "Date": "2019-07-01T09:30",
+        "z1_S1(degC)": 28.6, "z1_S1(RH%)": 64.8, "z1_S1(lux)": 120.0,
+        "z2_S1(degC)": 28.7, "z2_S1(RH%)": 66.2, "z2_S1(lux)": 110.0,
+        "z4_S1(degC)": 29.0, "z4_S1(RH%)": 65.4, "z4_S1(lux)": 95.0,
+        "z5_S1(degC)": 28.9, "z5_S1(RH%)": 66.0, "z5_S1(lux)": 100.0
+      };
+      for (const [k,v] of Object.entries(demo)) if (form.elements[k]) form.elements[k].value = v;
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      out.style.display = 'none'; out.className = 'result'; statusEl.textContent = '';
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Calculando…';
+
+      const features = {};
+      for (const el of form.elements) {
+        if (el.name) features[el.name] = el.type === 'number' ? parseFloat(el.value) : el.value;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/predict`, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({ features })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const detail = data?.detail;
+          const msg = typeof detail === 'string' ? detail : JSON.stringify(detail);
+          throw new Error(msg || 'Error en predicción');
         }
-    else:
-        # Si no hay scaler, lo "unscaled" = lo "scaled"
-        payload = scaled_payload
 
-    with open("weights.json", "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
-    print("✅ Generado weights.json y weights_scaled.json")
-    print(f"   n_features = {len(features)}")
-
-if __name__ == "__main__":
-    export_weights()
+        out.style.display = 'block'; out.classList.add('ok');
+        out.innerHTML = `<div class="muted" style="margin-bottom:6px;">Predicción de consumo</div>
+                         <div style="font-size:28px;font-weight:800;">${Number(data.prediction).toFixed(4)}</div>`;
+        statusEl.textContent = 'Predicción completada ✔';
+      } catch (err) {
+        out.style.display = 'block'; out.classList.add('err');
+        out.innerHTML = `<b>Error:</b> ${err.message}`;
+        statusEl.textContent = 'Error en la solicitud';
+      } finally {
+        btn.disabled = false; btn.textContent = 'Calcular';
+      }
+    });
+  </script>
+</body>
+</html>

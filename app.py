@@ -17,7 +17,7 @@ SCHEMA_PATH = os.getenv("SCHEMA_PATH", "modelo_rlm_schema.json")
 MEDIANS_PATH = os.getenv("MEDIANS_PATH", "feature_medians.json")
 FEATURE_LIST_ENV = os.getenv("FEATURE_LIST")
 
-app = FastAPI(title="GoroGrid Floor7 API", version="1.3")
+app = FastAPI(title="GreenGrid Floor7 API", version="1.3")
 
 # ===== CORS (para conectar desde http://localhost:3000) =====
 app.add_middleware(
@@ -172,7 +172,7 @@ def root():
         return FileResponse(index_path)
     return """
     <html><body style='font-family: Arial; text-align:center; padding-top:50px;'>
-    <h2>⚡ GoroGrid API local</h2>
+    <h2>⚡ GreenGrid API local</h2>
     <p>La API está activa.</p>
     <p>Visita <a href='/docs'>/docs</a> o abre el index en /static</p>
     </body></html>
